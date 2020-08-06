@@ -1,12 +1,5 @@
 package de.metas.ui.web.pickingslotsClearing.process;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.adempiere.model.InterfaceWrapperHelper;
-import org.springframework.beans.factory.annotation.Autowired;
-
 import de.metas.handlingunits.HuId;
 import de.metas.handlingunits.allocation.transfer.HUTransformService;
 import de.metas.handlingunits.model.I_M_HU;
@@ -17,6 +10,12 @@ import de.metas.process.ProcessPreconditionsResolution;
 import de.metas.ui.web.handlingunits.HUEditorRow;
 import de.metas.ui.web.picking.pickingslot.PickingSlotRow;
 import de.metas.util.Check;
+import org.adempiere.model.InterfaceWrapperHelper;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /*
  * #%L
@@ -55,9 +54,12 @@ public class WEBUI_PickingSlotsClearingView_TakeOutTUAndAddToLU extends PickingS
 			return ProcessPreconditionsResolution.rejectWithInternalReason("select one and only one picking slots HU");
 		}
 		final PickingSlotRow pickingSlotRow = getSingleSelectedPickingSlotRow();
-		if (!pickingSlotRow.isTU())
+
+		final boolean pickingSlotWithTUs = pickingSlotRow.isPickingSlotRow() && pickingSlotRow.getIncludedRows().stream().anyMatch(PickingSlotRow::isTU);
+
+		if (!pickingSlotRow.isTU() && !pickingSlotWithTUs)
 		{
-			return ProcessPreconditionsResolution.rejectWithInternalReason("select a TU");
+			return ProcessPreconditionsResolution.rejectWithInternalReason("select a TU or a picking slot containing at least one TU!");
 		}
 
 		//
@@ -80,6 +82,26 @@ public class WEBUI_PickingSlotsClearingView_TakeOutTUAndAddToLU extends PickingS
 	protected String doIt() throws Exception
 	{
 		final PickingSlotRow pickingSlotRow = getSingleSelectedPickingSlotRow();
+
+		Check.assume(pickingSlotRow.isTU() || pickingSlotRow.isPickingSlotRow(), "The selected row should be a picking slot or a TU : {}", pickingSlotRow);
+
+		if (pickingSlotRow.isTU())
+		{
+			addToLU(pickingSlotRow);
+		}
+		else
+		{
+			pickingSlotRow.getIncludedRows()
+					.stream()
+					.filter(PickingSlotRow::isTU)
+					.forEach(this::addToLU);
+		}
+
+		return MSG_OK;
+	}
+
+	private void addToLU(final PickingSlotRow pickingSlotRow)
+	{
 		Check.assume(pickingSlotRow.isTU(), "Picking slot HU shall be a TU: {}", pickingSlotRow);
 		final I_M_HU tuHU = InterfaceWrapperHelper.load(pickingSlotRow.getHuId(), I_M_HU.class);
 
@@ -99,7 +121,6 @@ public class WEBUI_PickingSlotsClearingView_TakeOutTUAndAddToLU extends PickingS
 		// Remove from picking slots all destroyed HUs
 		pickingCandidateService.inactivateForHUIds(HuId.fromRepoIds(huIdsDestroyedCollector));
 
-		return MSG_OK;
 	}
 
 	@Override
